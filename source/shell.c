@@ -1,35 +1,9 @@
-shell.c
-Details
-Activity
-shell.c
-Sharing Info
-Not shared
-General Info
-Type
-C
-Size
-4 KB (4,380 bytes)
-Storage used
-4 KB (4,380 bytes)
-Location
-New Project-20161024
-Owner
-me
-Modified
-Oct 24, 2016 by me
-Opened
-9:30 AM by me
-Created
-Oct 24, 2016 with Coding Ground
-Description
-Add a description
-Download permissions
-Viewers can download
+/*
+ * shell.c
+ *
+ *      Author: alextaxiera
+ */
 
-Get notifications on your computer for shared files and important events.
-TURN ON
-
-New Team Drive
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -39,219 +13,132 @@ New Team Drive
 #include <string.h>
 #include <errno.h>
 
-#include "header.h"
+#include "shell.h"
 
-extern int read_sector(int sector_number, unsigned char* buffer);
-extern int write_sector(int sector_number, unsigned char* buffer);
-
-extern unsigned int get_fat_entry(int fat_entry_number, unsigned char* fat);
-extern void set_fat_entry(int fat_entry_number, int value, unsigned char* fat);
-
-// 13 is NOT the correct number -- you fix it!
-#define BYTES_TO_READ_IN_BOOT_SECTOR 12
-
-char* readInput();
-char**parseInput(char*);
-int run(char**);
-int execute(char**);
-int commandCount();
-int exitShell(char**);
-
-int cd(char**);
-int pwd(char**);
-int ls(char**);
-int pbs(char**);
-int pfe(char**);
-
-char *commands[] =
+int shell(int argc, char *argv[])
 {
-    "exitShell",
-    "cd",
-    "pwd",
-    "ls",
-    "pbs",
-    "pfe"
-};
-int (*commandFunctions[]) (char **) =
-{
-    &exitShell,
-    &cd,
-    &pwd,
-    &ls,
-    &pbs,
-    &pfe
-};
+	if (FILE_SYSTEM_ID == NULL) {
+		printf("Could not open the floppy drive or image.\n");
+		exit(1);
+	}
 
-int main(int argc, char *argv[])
-{
-    char *input;
-    char **args;
-    int status = 0;
+	char* currentDirectory;
+	currentDirectory = malloc(sizeof(char));
+	currentDirectory = "/";
+	struct bootSector bootSector = readBootSector();
+    int exitShell = 1;
 
     do
     {
+    	char buffer[128];
         printf("➜ ");
-        input = readInput();
-        args = parseInput(input);
-        status = run(args);
+		fgets(buffer, 128, stdin);
+		char ** args;
+		int numParams = 1;
 
-        free(input);
-        free(args);
-    } while (status != -1);
+        args = malloc(numParams * sizeof(char*));
+        		args[0] = strtok(buffer, " ");
+        		while (args[numParams - 1] != NULL) {
+        			//find number of parameters
+        			numParams += 1;
+        			args = realloc(args, numParams * sizeof(char*));
+        			args[numParams - 1] = strtok(NULL, " ");
+        		}
 
+        		for (int i = 0; i < numParams; i++) {
+        			args[i] = strtok(args[i], "\n");
+        		}
+        		numParams -= 1;
+
+          if (args[0] == NULL)
+          {
+            // An empty command was entered.
+            return 1;
+          }
+
+          if (strcmp(args[0], "cd") == 0) {
+        		if (numParams == 2 || numParams == 1) {
+        			currentDirectory = cd(bootSector, args, numParams, currentDirectory);
+        		} else {
+        			printf("Command %s take one or no params.\n", args[0]);
+        		}
+        	} else if (strcmp(args[0], "ls") == 0) {
+        		if (numParams == 2 || numParams == 1) {
+        			pid_t pid = fork();
+        			if (pid == 0) {
+        				printf("Child process for %s.\n", args[0]);
+        				printf("Child process killed\n");
+        			}
+        		} else {
+        			printf("Command %s takes up to one additional parameter.\n",
+        					args[0]);
+        		}
+        	} else if (strcmp(args[0], "pbs") == 0) {
+        		if (numParams == 1) {
+        			pid_t pid = fork();
+        			if (pid == 0) {
+        				pbs(bootSector);
+        			}
+        		} else {
+        			printf("Command %s takes no parameters.\n", args[0]);
+        		}
+        	} else if (strcmp(args[0], "pfe") == 0) {
+        		if (numParams == 3) {
+        			pid_t pid = fork();
+        			if (pid == 0) {
+        				printf("Child process for %s.\n", args[0]);
+        				pfe(atoi(args[1]), atoi(args[2]), bootSector);
+        			}
+        		} else {
+        			printf("Command %s requires two additional parameters.\n",
+        					args[0]);
+        		}
+        	} else if (strcmp(args[0], "pwd") == 0) {
+        		if (numParams == 1) {
+        			pid_t pid = fork();
+        			if (pid == 0) {
+        				printf("%s\n", currentDirectory);
+        			}
+        		} else {
+        			printf("Command %s takes no parameters.\n", args[0]);
+        		}
+        	} else if (strcmp(args[0], "exit") == 0) {
+        		exitShell = 0;
+        	} else {
+        		printf("Command %s does not exist.\n", args[0]);
+        	}
+
+
+    } while (exitShell == 1);
+
+	free(bootSector.volumeId);
+	free(bootSector.volumeLabel);
+	free(bootSector.systemType);
     return EXIT_SUCCESS;
 }
 
-char *readInput()
-{
-    //buffer to store input, and buffer size setting
-    char *line = NULL;
-    ssize_t bufsize = 0;
-    
-    //note: getline dynamically allocates when given a null buffer
-    getline(&line, &bufsize, stdin);
-    return line;
+int getBytes(char* boot, int val) {
+	int mostSignificantBits;
+	int leastSignificantBits;
+	int bytesPerSector;
+
+	mostSignificantBits = (((int) boot[val + 1]) << 8) & 0x0000ff00;
+	leastSignificantBits = ((int) boot[val]) & 0x000000ff;
+	bytesPerSector = mostSignificantBits | leastSignificantBits;
+
+	return bytesPerSector;
 }
 
-char **parseInput(char *line)
-{
-    //buffer to allow up to 128 arguments, 
-    int bufsize = 128, position = 0;
-    char **buffer = malloc(128 * sizeof(char*));
-    char *arg;
+int getBigBytes(char* boot, int val) {
 
-    // Check if buffer isn't allocated correctly.
-    if (!buffer)
-    {
-        fprintf(stderr, "\"buffer\" double pointer character array did not allocate correctly in parseInput().\n");
-        exit(EXIT_FAILURE);
-    }
+	int mostSignificantBits;
+	int leastSignificantBits;
+	int almostSignificantBits;
+	int atleastSignificantBits;
 
-    // Every ' ' and '\n' is a delimiter to find each argument.
-    arg = strtok(line, " \n");
-
-    // For every actual argument, put it in buffer.
-    while (arg != NULL)
-    {
-        buffer[position] = arg;
-        position++;
-
-        // Same as above, will continue from end of previous arg because of NULL argument
-        arg = strtok(NULL, " ");
-    }
-
-    //remove the newline from the end of the last argument
-    int i = 0;
-    //find the terminator of the last argument
-    while(buffer[position - 1][i] != '\0')
-        i++;
-    //check if the last character is a newline, and if it is, change it to NULL
-    if (buffer[position - 1][i - 1] == '\n')
-        buffer[position - 1][i - 1] = '\0';
-    
-    // Mark final position as NULL to mark the end of the buffer
-    buffer[position] = NULL;
-    return buffer;
-}
-
-int run(char **args)
-{
-  int i;
-
-  if (args[0] == NULL)
-  {
-    // An empty command was entered.
-    return 1;
-  }
-
-  for (i = 0; i < commandCount(); i++)
-  {
-      if (strcmp(args[0], commands[i]) == 0)
-      {
-          return (*commandFunctions[i])(args);
-      }
-  }
-
-  return execute(args);
-}
-
-int execute(char **args)
-{
-    int i = 0;
-    //forks the process so the child can run the command
-    int isParent = fork();
-    
-    //parent waits
-    if (isParent)
-        wait(NULL);
-    
-    else if ( execvp(args[0], args) )
-        printf( "Err: Unrecognized command\n" );
-    
-   return 0;
-}
-
-int commandCount() 
-{
-    return sizeof(commands) / sizeof(char *);
-}
-
-int exitShell(char** args)
-{
-    return -1;
-}
-
-int cd(char** args)
-{
-    //if there was an argument after cd then change directory
-    if( args[1] )
-    {
-        //if an error occured
-        if( chdir(args[1]) )
-        {
-            printf("An error occured, could not change directory \n");
-            errno = 0;
-        }
-    }
-    
-    //if no directory was provided
-    else
-        printf("Err: No directory specified.\n");
-    
-    return 0;
-}
-
-int pwd(char** args)
-{
-    printf("Lol you thought this was implemented.\n");
-}
-
-int ls(char** args)
-{
-    //if there was one argument after ls then address it
-    if( args[1] )
-    {
-        //if an error occured
-        if( chdir(args[1]) )
-        {
-            printf("An error occured, could not change directory.\n");
-            errno = 0;
-        }
-    }
-    
-    //if the number of arguments exceeded one
-    else
-        printf("Err: Too many arguments.\n");
-    
-    return 0;
-}
-
-int pbs(char** args)
-{
-    printf("Lol you thought this was implemented.\n");
-}
-
-int pfe(char** args)
-{
-    printf("Lol you thought this was implemented.\n");
+	almostSignificantBits = (((int) boot[val + 3]) << 24) & 0xff000000;
+	atleastSignificantBits = ((int) boot[val +2] << 16) & 0x00ff0000;
+	mostSignificantBits = (((int) boot[val + 1]) << 8) & 0x0000ff00;
+	leastSignificantBits = ((int) boot[val]) & 0x000000ff;
+	return almostSignificantBits | atleastSignificantBits | mostSignificantBits|leastSignificantBits;
 }
