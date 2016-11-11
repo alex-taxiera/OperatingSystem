@@ -17,5 +17,6 @@ int get_total_sectors();
 int get_bytes_per_sector();
 
 int read_sector ( int sector_number, unsigned char *buffer );
+int write_sector( int sector_number, unsigned char *buffer );
 
 #endif // DISK_H
