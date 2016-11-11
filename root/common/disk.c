@@ -149,3 +149,24 @@ int read_sector(int sector_number, unsigned char *buffer)
 	}
    	return bytes_read;
 }
+
+int write_sector( int sector_number, unsigned char *buffer ) 
+{
+    int bytes_written;
+    int bytes_per_sec = get_bytes_per_sector();
+
+    FILE *fp = get_disk();
+    if (fp && fseek(fp, (long) sector_number *(long) bytes_per_sec, SEEK_SET) != 0) 
+    {
+        printf("Error accessing sector %d\n", sector_number);
+        return -1;
+    }
+    bytes_written = fwrite(buffer, sizeof(unsigned char), bytes_per_sec, fp);
+    
+    if (bytes_written != bytes_per_sec) 
+    {
+        printf("Error Coud not write sector %d\n", sector_number);
+        return -1;
+    }
+    return bytes_written;
+}
